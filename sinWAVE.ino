@@ -1,5 +1,6 @@
 #define FREQUENCY 60
-
+#define INNERACTUATORMASK  0b00000001
+#define OUTERACTUATORMASK  0b00000010
 //62.5kHz 1
 //#define SCALER 0x1; 
 //7.8kHz 8
@@ -48,34 +49,50 @@ const byte SIN_DATA[] = {115, 118, 120, 123, 126, 129, 132, 134, 137, 140, 143, 
 79, 81, 84, 87, 90, 92, 95, 98, 101, 104, 106, 109, 112};
 */
 
-byte sinAlpha[256],sinBeta[256],*sinon = sinAlpha,*sinoff = sinBeta;
+byte sinAlpha1[256],sinBeta1[256],*sinon1 = sinAlpha1,*sinoff1 = sinBeta1;
+byte sinAlpha2[256],sinBeta2[256],*sinon2 = sinAlpha2,*sinoff2 = sinBeta2;
 
 void init_SinWAVE() {
   
- pinMode(2,OUTPUT);
- pinMode(3,OUTPUT);
- pinMode(5,OUTPUT);
+ pinMode(2,OUTPUT);  //PE4-OC3B,OUTER2
+ pinMode(3,OUTPUT);  //PE5-OC3C,OUTER3
+ pinMode(5,OUTPUT);  //PE3-OC3A,OUTER1
+ pinMode(6,OUTPUT);  //PH3-OC4A,INNER1
+ pinMode(7,OUTPUT);  //PH4-OC4B,INNER2
+ pinMode(8,OUTPUT);  //PH5-OC4C,INNER3
   
 noInterrupts();
 
-memcpy_P(sinon,SIN_DATA,256);
+memcpy_P(sinon1,SIN_DATA,256);
+memcpy_P(sinon2,SIN_DATA,256);
 
 //set to output
-DDRE |= 0x38;
+//DDRE |= 0x38;
 
 //turn off timers
 TCCR3B = 0x88; //noice Canceled, falling edge, WMG mode 5, timer stopped
+TCCR4B = 0x88;
+/*TCCRxB*/
+/*  7    6     5     4     3    2    1    0 */
+/* ICNC ICES   -   WGM3  WGM2  CS2  CS1  CS0 */
 TCCR2B = 0x0;//non-forcing, CTC mode,timer stopped
-
+TCCR5B = 0x0;//non-forcing, CTC mode,timer stopped
 //timer 3 pwm,pins 5,3,2
 TCCR3A = 0xA9; //timer 3, WMG mode 5, all channels fast PWM non-inverting
-TIMSK3 = 0x0;//no timer 3 interupts
-
+TCCR4A = 0xA9;
+/*TCCRxA*/
+/*  7      6     5     4     3     2    1    0 */
+/* COMA1 COMA0 COMB1 COMB0 COMC1 COMC0 WGM1 WGM0*/
+/* WGM5 FASTPWM 8bit, MAX 0xff, update OCR at bottom, TOV at top*/
+TIMSK3 = 0x00;//no timer 3 interupts
+TIMSK4 = 0x00;
 //timer 2 interupt
 TCCR2A = 0x2;//OC2 A and B discomnected, CTC mode
+TCCR5A = 0x2;//OC2 A and B discomnected, CTC mode
 OCR2A = (byte)round(2.0 * 16000000 / FREQUENCY / 64 / 256- 1);//set compair register A to match at 256 times FREQUENCY
+OCR5A = (byte)round(2.0 * 16000000 / FREQUENCY / 64 / 256- 1);//set compair register A to match at 256 times FREQUENCY
 TIMSK2 = 0x2;//fire inturupt on compair match A
-
+TIMSK5 = 0x2;//fire inturupt on compair match A
 
 interrupts();
 
@@ -84,52 +101,96 @@ interrupts();
 
 }
 
-void startSinWAVE(){
+void startSinWAVE(unsigned char target){
 
-  TCCR3A = 0xA9; //timer 3, WMG mode 5, all channels fast PWM non-inverting
-  
-  TCNT2 = 0;//clear timer2
-  TCNT3L = 0x0; // clear timer3
-  
-  OCR3AL = SIN_DATA[indexA = OFFSETA];//compair reg A
-  OCR3BL = SIN_DATA[indexB = OFFSETB];//compair reg B
-  OCR3CL = SIN_DATA[indexC = OFFSETC];//compair reg C
-  
-  TCCR3B = 0x88 | SCALER; //noice Canceled, falling edge, WMG mode 5, timer running with pre-scaler
-  TCCR2B = 0x3;//non-forcing, CTC mode,timer running with 64 prescaler
-}
-
-void setFrequencySinWAVE(float f){
-  OCR2A = (byte)round(2 * 16000000 / f / 64 / 256- 1) ;//set compair register A to match at 256 times FREQUENCY
-}
-
-void setAmplitudeSinWAVE(float amp){
-  memcpy_P(sinoff,SIN_DATA,256);
-  for(int i = 0; i < 256; ++i){
-    sinoff[i] = (byte)round(amp * sinoff[i]);
+  if(target&&OUTERACTUATORMASK){
+      TCCR3A = 0xA9; //timer 3, WMG mode 5, all channels fast PWM non-inverting
+      
+      TCNT2 = 0;//clear timer2
+      TCNT3L = 0x0; // clear timer3
+      
+      OCR3AL = SIN_DATA[indexA = OFFSETA];//compair reg A
+      OCR3BL = SIN_DATA[indexB = OFFSETB];//compair reg B
+      OCR3CL = SIN_DATA[indexC = OFFSETC];//compair reg C
+      
+      TCCR3B = 0x88 | SCALER; //noice Canceled, falling edge, WMG mode 5, timer running with pre-scaler
+      TCCR2B = 0x3;//non-forcing, CTC mode,timer running with 64 prescaler
   }
-  byte* tempSwitch = sinon;
-  noInterrupts();
-  sinon = sinoff;
-  interrupts();
-  sinoff = tempSwitch;
+  if(target&&INNERACTUATORMASK){
+      TCCR4A = 0xA9; //timer 3, WMG mode 5, all channels fast PWM non-inverting
+      
+      TCNT5 = 0;//clear timer2
+      TCNT4L = 0x0; // clear timer3
+      
+      OCR4AL = SIN_DATA[indexA = OFFSETA];//compair reg A
+      OCR4BL = SIN_DATA[indexB = OFFSETB];//compair reg B
+      OCR4CL = SIN_DATA[indexC = OFFSETC];//compair reg C
+      
+      TCCR4B = 0x88 | SCALER; //noice Canceled, falling edge, WMG mode 5, timer running with pre-scaler
+      TCCR5B = 0x3;//non-forcing, CTC mode,timer running with 64 prescaler
+  }
+
+}
+
+void setFrequencySinWAVE(float f, unsigned char target){
+  if(target&&OUTERACTUATORMASK){
+    OCR2A = (byte)round(2 * 16000000 / f / 64 / 256- 1) ;//set compair register A to match at 256 times FREQUENCY    
+  }
+  if(target&&INNERACTUATORMASK){
+    OCR5A = (byte)round(2 * 16000000 / f / 64 / 256- 1) ;//set compair register A to match at 256 times FREQUENCY    
+  }
+
+}
+
+void setAmplitudeSinWAVE(float amp,unsigned char target){
+  if(target&&OUTERACTUATORMASK){
+    /* Outer Actuator*/
+    memcpy_P(sinoff1,SIN_DATA,256);
+    for(int i = 0; i < 256; ++i){
+      sinoff1[i] = (byte)round(amp * sinoff1[i]);
+    }
+    byte* tempSwitch = sinon1;
+    noInterrupts();
+    sinon1 = sinoff1;
+    interrupts();
+    sinoff1 = tempSwitch;
+  }
+  if(target&&INNERACTUATORMASK){
+    /* Inner Actuator*/
+    memcpy_P(sinoff2,SIN_DATA,256);
+    for(int i = 0; i < 256; ++i){
+      sinoff2[i] = (byte)round(amp * sinoff2[i]);
+    }
+    byte* tempSwitch = sinon2;
+    noInterrupts();
+    sinon2 = sinoff2;
+    interrupts();
+    sinoff2 = tempSwitch;
+  }
+
 }
 
 bool isSinWAVE(){
   return TCCR3B & 0x7;
 }
 
-void stopSinWAVE(){
-  noInterrupts();
-  PORTE &= 0xC7;
-  TCCR3B = 0x88; //noice Canceled, falling edge, WMG mode 5, timer stopped
-  TCCR2B = 0x3;//non-forcing, CTC mode,timer stopped
-  interrupts();
-
+void stopSinWAVE(unsigned char target){
+      noInterrupts();
+  if(target&&OUTERACTUATORMASK){
+      PORTE &= 0xC7;
+      TCCR3B = 0x88; //noice Canceled, falling edge, WMG mode 5, timer stopped
+      TCCR2B = 0x3;//non-forcing, CTC mode,timer stopped
+  }
+  if(target&&INNERACTUATORMASK){
+      PORTH &= 0xC7;
+      TCCR4B = 0x88; //noice Canceled, falling edge, WMG mode 5, timer stopped
+      TCCR5B = 0x3;//non-forcing, CTC mode,timer stopped
+  }
+      interrupts();
   
 }
 
-void plug(){
+void plug(unsigned char target){
   byte temp=OFFSETB;
   noInterrupts();
   OFFSETB=OFFSETC;
@@ -138,14 +199,15 @@ void plug(){
 }
 
 ISR(TIMER2_COMPA_vect){
-  /*
-  OCR3AL = SIN_DATA[indexA++] * (unsigned int)sinAmp / 255;//advance compair reg A
-  OCR3BL = SIN_DATA[indexB++] * (unsigned int)sinAmp / 255;//advance compair reg B
-  OCR3CL = SIN_DATA[indexC++] * (unsigned int)sinAmp / 255;//advance compair reg C
-  */
 
-  OCR3AL = sinon[indexA++];//advance compair reg A
-  OCR3BL = sinon[indexB++];//advance compair reg B
-  OCR3CL = sinon[indexC++];//advance compair reg C
+  OCR3AL = sinon1[indexA++];//advance compair reg A
+  OCR3BL = sinon1[indexB++];//advance compair reg B
+  OCR3CL = sinon1[indexC++];//advance compair reg C
 }
 
+ISR(TIMER5_COMPA_vect){
+
+  OCR4AL = sinon2[indexA++];//advance compair reg A
+  OCR4BL = sinon2[indexB++];//advance compair reg B
+  OCR4CL = sinon2[indexC++];//advance compair reg C
+}
